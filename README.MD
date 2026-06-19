@@ -1,4 +1,3 @@
-
 # 🚀 API Eventos
 
 Uma API RESTful de alta performance desenvolvida em **Go (Golang)** para o gerenciamento de listas de convidados e presentes.
@@ -11,6 +10,7 @@ A aplicação utiliza uma arquitetura *multitenancy* simples, onde cada usuário
 
 * [Tecnologias Utilizadas](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-tecnologias-utilizadas)
 * [Regras de Negócio e Segurança](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-regras-de-neg%C3%B3cio-e-seguran%C3%A7a-cors-e-roles)
+* [Observações de Implementação](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-observa%C3%A7%C3%B5es-de-implementa%C3%A7%C3%A3o)
 * [Como Executar o Projeto Localmente](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-como-executar-o-projeto-localmente)
 * [Documentação das Rotas](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-documenta%C3%A7%C3%A3o-das-rotas-endpoints)
   * [Rotas Públicas](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-rotas-p%C3%BAblicas)
@@ -42,6 +42,51 @@ A aplicação utiliza uma arquitetura *multitenancy* simples, onde cada usuário
   * `localhost` (para desenvolvimento)
 * **Lógica de Administrador (Role: `admin`):** usuários cadastrados com o cargo `admin` podem listar, editar e deletar convidados e presentes de **qualquer** usuário do sistema. Usuários com cargo `client` estão isolados em seu próprio *tenant* (só acessam seus próprios dados). Essa mesma regra de isolamento se aplica ao **check-in** (validação de entrada) de convidados.
 * **QR Code automático:** todo convidado criado recebe automaticamente um `qr_code` (UUID v4) gerado pelo backend no momento da criação (hook `BeforeCreate` do GORM). O frontend **não precisa — e não deve —** enviar esse campo.
+
+---
+
+## ⚠️ Observações de Implementação
+
+Esta seção documenta comportamentos reais do backend que fogem do "óbvio" e que quem for consumir a API precisa saber.
+
+### 1. Campos de resposta em `PascalCase` para Convidados e Presentes
+
+Os models `Guest` e `Gift` embutem `gorm.Model` **sem sobrescrever as tags JSON** dos campos herdados (`ID`, `CreatedAt`, `UpdatedAt`, `DeletedAt`). Isso significa que, embora o **payload de entrada** use `snake_case` (`nome_presente`, `quantidade_acompanhante`...), os campos herdados do GORM voltam na resposta em `PascalCase`:
+
+```json
+{
+  "ID": 3,
+  "CreatedAt": "2026-06-20T01:31:03.082571432+02:00",
+  "UpdatedAt": "2026-06-20T01:31:03.082571432+02:00",
+  "DeletedAt": null,
+  "Name": "Liquidificador",
+  "Description": "Potência 1000W, Cor Preta",
+  "ReservedQty": 0,
+  "TotalReservations": 1,
+  "UserID": 5,
+  "PhotoURL": "https://link-da-imagem.com/foto.jpg"
+}
+```
+
+> 🔧 **Sugestão de melhoria:** adicionar tags `json:"id"`, `json:"created_at"` etc. nos models para manter o padrão `snake_case` em toda a API. Até lá, o frontend precisa tratar os dois formatos (campos próprios em `snake_case`, campos herdados do GORM em `PascalCase`).
+
+### 2. `PUT` em Presentes substitui o objeto inteiro (sem merge parcial)
+
+`UpdateGift` atribui **todos** os campos do corpo da requisição diretamente no registro, sem checar se vieram vazios. Ou seja, **qualquer campo omitido no `PUT` é apagado** (vira string vazia ou zero), e não apenas ignorado. Sempre envie o objeto completo, igual a um `PUT` REST tradicional — não trate como `PATCH`.
+
+### 3. Criação de Convidados pode falhar com `500` se a tabela não estiver migrada
+
+O campo `relacoes_acompanhante` (`CompanionRelations`) foi adicionado ao model `Guest`, mas o GORM tenta gravar **todas** as colunas do struct no `INSERT`, mesmo que o campo não seja enviado no JSON. Se a coluna correspondente (`companion_relations`) ainda não existir na tabela em produção — porque o `AutoMigrate` não rodou de novo após esse campo ser adicionado ao código — **toda** criação de convidado falha com `500 Falha ao salvar convidado`, mesmo sem enviar o campo.
+
+> ✅ **Correção necessária no backend:** reiniciar/redeployar a aplicação em produção para que o `AutoMigrate` crie a coluna que falta (ou rodar a migration manualmente no banco).
+
+### 4. `Criar Presente` aceita um campo extra não documentado anteriormente
+
+Além de `quantas_reservas_por_presente` (capacidade total), o endpoint aceita `quantidade_reservas`, que permite já criar o presente com reservas iniciais (`ReservedQty`).
+
+### 5. `ReserveGift` não usa transação/lock
+
+A reserva é feita com um `Find` seguido de `if` e `Save`, sem transação ou lock no banco. Em cenários de alta concorrência (vários convidados reservando o mesmo presente ao mesmo tempo), existe risco de *race condition* e o limite de reservas pode ser ultrapassado. Não é um problema de documentação, mas vale registrar como melhoria futura (ex.: usar `SELECT ... FOR UPDATE` ou uma transação com verificação atômica).
 
 ---
 
@@ -95,6 +140,8 @@ go run main.go
 ```
 
 O servidor estará rodando em `http://localhost:8080`.
+
+> ⚠️ Sempre que um novo campo for adicionado a um model (`Guest`, `Gift`, `User`), reinicie a aplicação em produção para que o `AutoMigrate` crie a coluna correspondente — veja [Observações de Implementação, item 3](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-observa%C3%A7%C3%B5es-de-implementa%C3%A7%C3%A3o).
 
 ### 4. Rodando os Testes Automatizados
 
@@ -153,23 +200,30 @@ Cria um novo usuário (cliente ou admin) no sistema.
 }
 ```
 
+| Campo        | Tipo   | Obrigatório | Descrição                                                                                               |
+| ------------ | ------ | :----------: | --------------------------------------------------------------------------------------------------------- |
+| `name`     | string |      ✅      | Nome completo do usuário                                                                                 |
+| `email`    | string |      ✅      | E-mail único utilizado para login                                                                        |
+| `password` | string |      ✅      | Senha em texto puro (mínimo 6 caracteres, será hasheada)                                                |
+| `role`     | string |      ❌      | `client`ou `admin`. Qualquer valor diferente de `admin`(inclusive vazio) é tratado como `client` |
+
 **Resposta de sucesso (201):**
 
 ```json
 {
-  "id": 1,
-  "name": "João Silva",
-  "email": "joao@email.com",
-  "role": "client"
+  "message": "Usuário criado com sucesso!"
 }
 ```
 
-| Campo        | Tipo   | Obrigatório | Descrição                          |
-| ------------ | ------ | :----------: | ------------------------------------ |
-| `name`     | string |      ✅      | Nome completo do usuário            |
-| `email`    | string |      ✅      | E-mail único utilizado para login   |
-| `password` | string |      ✅      | Senha em texto puro (será hasheada) |
-| `role`     | string |      ✅      | `client`ou `admin`               |
+> ⚠️ O endpoint **não** retorna os dados do usuário criado (nem `id`, nem `email`) — apenas a mensagem de confirmação. Se precisar do `user_id`, faça login em seguida e consulte `GET /api/me`.
+
+**Resposta de erro (400) — e-mail já cadastrado ou erro de validação:**
+
+```json
+{
+  "error": "Email já cadastrado ou erro no banco"
+}
+```
 
 ---
 
@@ -197,11 +251,11 @@ Autentica o usuário e devolve o token JWT.
 }
 ```
 
-**Resposta de erro (401):**
+**Resposta de erro (401) — e-mail não encontrado ou senha incorreta:**
 
 ```json
 {
-  "error": "credenciais inválidas"
+  "error": "Email ou senha incorretos"
 }
 ```
 
@@ -217,22 +271,31 @@ Retorna a lista de presentes de um cliente específico. Ideal para renderizar a 
 **Resposta de sucesso (200):**
 
 ```json
-[
-  {
-    "id": 3,
-    "nome_presente": "Liquidificador",
-    "descricao_presente": "Potência 1000W, Cor Preta",
-    "quantas_reservas_por_presente": 1,
-    "foto_presente": "https://link-da-imagem.com/foto.jpg"
-  }
-]
+{
+  "data": [
+    {
+      "ID": 3,
+      "CreatedAt": "2026-06-20T01:31:03.082571+02:00",
+      "UpdatedAt": "2026-06-20T01:31:03.082571+02:00",
+      "DeletedAt": null,
+      "Name": "Liquidificador",
+      "Description": "Potência 1000W, Cor Preta",
+      "ReservedQty": 0,
+      "TotalReservations": 1,
+      "UserID": 5,
+      "PhotoURL": "https://link-da-imagem.com/foto.jpg"
+    }
+  ]
+}
 ```
+
+> ℹ️ Os campos vêm em `PascalCase` por herdarem de `gorm.Model` sem tags JSON customizadas — veja [Observações de Implementação](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-observa%C3%A7%C3%B5es-de-implementa%C3%A7%C3%A3o).
 
 ---
 
 #### Reservar Presente
 
-Incrementa a quantidade reservada de um presente, se houver disponibilidade.
+Incrementa a quantidade reservada (`ReservedQty`) de um presente, se houver disponibilidade (`ReservedQty < TotalReservations`).
 
 * **Método:** `POST`
 * **Endpoint:** `/api/public/presentes/:id/reservar`
@@ -242,7 +305,22 @@ Incrementa a quantidade reservada de um presente, se houver disponibilidade.
 ```json
 {
   "message": "Presente reservado com sucesso!",
-  "data": { ... }
+  "data": {
+    "ID": 3,
+    "Name": "Liquidificador",
+    "ReservedQty": 1,
+    "TotalReservations": 1,
+    "UserID": 5,
+    "PhotoURL": "https://link-da-imagem.com/foto.jpg"
+  }
+}
+```
+
+**Resposta de erro (404) — presente não encontrado:**
+
+```json
+{
+  "error": "Presente não encontrado"
 }
 ```
 
@@ -253,6 +331,8 @@ Incrementa a quantidade reservada de um presente, se houver disponibilidade.
   "error": "Este presente já foi totalmente reservado!"
 }
 ```
+
+> ⚠️ Não há transação/lock nessa operação — em cenários de alta concorrência existe risco teórico de duas reservas simultâneas ultrapassarem o limite. Veja [Observações de Implementação, item 5](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-observa%C3%A7%C3%B5es-de-implementa%C3%A7%C3%A3o).
 
 ---
 
@@ -313,6 +393,8 @@ Adiciona um novo convidado vinculado ao usuário autenticado. O `qr_code` é ger
 > ℹ️ Apenas o campo `nome` é obrigatório; os demais são opcionais.
 >
 > ⚠️ Não envie o campo `qr_code` — ele é gerado automaticamente pelo backend.
+>
+> 🐛 **Bug conhecido em produção:** esse endpoint pode retornar `500 Falha ao salvar convidado` para **qualquer** convidado (mesmo sem enviar `relacoes_acompanhante`) se a tabela do banco ainda não tiver a coluna correspondente migrada. Veja [Observações de Implementação, item 3](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-observa%C3%A7%C3%B5es-de-implementa%C3%A7%C3%A3o).
 
 **Resposta de sucesso (201):**
 
@@ -320,21 +402,32 @@ Adiciona um novo convidado vinculado ao usuário autenticado. O `qr_code` é ger
 {
   "message": "Convidado adicionado com sucesso!",
   "data": {
-    "id": 5,
+    "ID": 5,
+    "CreatedAt": "2026-06-20T01:31:03.082571+02:00",
+    "UpdatedAt": "2026-06-20T01:31:03.082571+02:00",
+    "DeletedAt": null,
     "nome": "Carlos Almeida",
+    "user_id": 1,
     "quantidade_acompanhante": 2,
     "nome_acompanhante": ["Ana Almeida", "Pedro Almeida"],
-    "email_convidado": "carlos@email.com",
-    "numero_convidado": "11999999999",
     "emails_acompanhantes": ["ana@email.com"],
     "numeros_acompanhantes": ["11888888888"],
     "relacoes_acompanhante": ["Esposa", "Filho"],
-    "user_id": 1,
+    "email_convidado": "carlos@email.com",
+    "numero_convidado": "11999999999",
     "qr_code": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     "entrada_registrada": false,
     "data_entrada": null,
     "usuario_validador": null
   }
+}
+```
+
+**Resposta de erro (500) — falha ao salvar (ver bug conhecido acima):**
+
+```json
+{
+  "error": "Falha ao salvar convidado"
 }
 ```
 
@@ -353,8 +446,9 @@ Retorna todos os convidados que pertencem ao usuário autenticado. Se o usuário
 {
   "data": [
     {
-      "id": 5,
+      "ID": 5,
       "nome": "Carlos Almeida",
+      "user_id": 1,
       "quantidade_acompanhante": 2,
       "nome_acompanhante": ["Ana Almeida", "Pedro Almeida"],
       "email_convidado": "carlos@email.com",
@@ -372,7 +466,7 @@ Retorna todos os convidados que pertencem ao usuário autenticado. Se o usuário
 
 #### Atualizar Convidado
 
-Edita as informações de um convidado existente.
+Edita as informações de um convidado existente. **Substitui o objeto inteiro** — campos omitidos voltam ao valor zero (mesma observação do `PUT` de presentes).
 
 * **Método:** `PUT`
 * **Endpoint:** `/api/convidados/:id`
@@ -383,6 +477,23 @@ Edita as informações de um convidado existente.
 {
   "nome": "Nome Atualizado",
   "quantidade_acompanhante": 3
+}
+```
+
+**Resposta de sucesso (200):**
+
+```json
+{
+  "message": "Convidado atualizado!",
+  "data": { ... }
+}
+```
+
+**Resposta de erro (404) — convidado não encontrado ou não pertence ao usuário:**
+
+```json
+{
+  "error": "Convidado não encontrado ou sem permissão"
 }
 ```
 
@@ -417,7 +528,7 @@ Retorna os dados de um convidado a partir do seu ID numérico ou do seu `qr_code
 ```json
 {
   "data": {
-    "id": 5,
+    "ID": 5,
     "nome": "Carlos Almeida",
     "qr_code": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     "entrada_registrada": false,
@@ -451,7 +562,15 @@ Registra a entrada de um convidado no evento a partir do seu QR Code (ou ID). **
 }
 ```
 
-> `codigo` aceita tanto o `qr_code` (UUID) quanto o `id` numérico do convidado.
+> `codigo` aceita tanto o `qr_code` (UUID) quanto o `id` numérico do convidado. O campo é  **obrigatório** .
+
+**Resposta de erro (400) — campo `codigo` ausente:**
+
+```json
+{
+  "error": "Informe o código do QR Code ou ID do convidado."
+}
+```
 
 **Resposta de sucesso (200):**
 
@@ -460,7 +579,7 @@ Registra a entrada de um convidado no evento a partir do seu QR Code (ou ID). **
   "status": "valido",
   "mensagem": "Entrada autorizada com sucesso!",
   "data": {
-    "id": 5,
+    "ID": 5,
     "nome": "Carlos Almeida",
     "entrada_registrada": true,
     "data_entrada": "2026-06-19T20:15:00Z",
@@ -503,28 +622,37 @@ Adiciona um presente à lista do usuário autenticado.
 {
   "nome_presente": "Liquidificador",
   "descricao_presente": "Potência 1000W, Cor Preta",
+  "quantidade_reservas": 0,
   "quantas_reservas_por_presente": 1,
   "foto_presente": "https://link-da-imagem.com/foto.jpg"
 }
 ```
 
-| Campo                             | Tipo   | Obrigatório | Descrição                                |
-| --------------------------------- | ------ | :----------: | ------------------------------------------ |
-| `nome_presente`                 | string |      ✅      | Nome do presente                           |
-| `descricao_presente`            | string |      ❌      | Detalhes adicionais (cor, potência, etc.) |
-| `quantas_reservas_por_presente` | int    |      ❌      | Quantidade disponível para reserva        |
-| `foto_presente`                 | string |      ❌      | URL da imagem do presente                  |
+| Campo                             | Tipo   | Obrigatório | Descrição                                                                                                     |
+| --------------------------------- | ------ | :----------: | --------------------------------------------------------------------------------------------------------------- |
+| `nome_presente`                 | string |      ✅      | Nome do presente                                                                                                |
+| `descricao_presente`            | string |      ❌      | Detalhes adicionais (cor, potência, etc.)                                                                      |
+| `quantidade_reservas`           | int    |      ❌      | Quantidade de reservas**já existentes**ao criar o presente (raramente usado fora de migração de dados) |
+| `quantas_reservas_por_presente` | int    |      ❌      | Capacidade total de reservas. Se omitido ou ≤ 0, assume `1`                                                  |
+| `foto_presente`                 | string |      ❌      | URL da imagem do presente                                                                                       |
 
 **Resposta de sucesso (201):**
 
 ```json
 {
-  "id": 3,
-  "nome_presente": "Liquidificador",
-  "descricao_presente": "Potência 1000W, Cor Preta",
-  "quantas_reservas_por_presente": 1,
-  "foto_presente": "https://link-da-imagem.com/foto.jpg",
-  "user_id": 1
+  "message": "Presente adicionado com sucesso!",
+  "data": {
+    "ID": 3,
+    "CreatedAt": "2026-06-20T01:31:03.082571432+02:00",
+    "UpdatedAt": "2026-06-20T01:31:03.082571432+02:00",
+    "DeletedAt": null,
+    "Name": "Liquidificador",
+    "Description": "Potência 1000W, Cor Preta",
+    "ReservedQty": 0,
+    "TotalReservations": 1,
+    "UserID": 1,
+    "PhotoURL": "https://link-da-imagem.com/foto.jpg"
+  }
 }
 ```
 
@@ -532,7 +660,7 @@ Adiciona um presente à lista do usuário autenticado.
 
 #### Listar Presentes
 
-Retorna todos os presentes cadastrados pelo usuário autenticado.
+Retorna todos os presentes cadastrados pelo usuário autenticado. Se o usuário for `admin`, retorna os presentes de **todos** os usuários.
 
 * **Método:** `GET`
 * **Endpoint:** `/api/presentes`
@@ -540,15 +668,19 @@ Retorna todos os presentes cadastrados pelo usuário autenticado.
 **Resposta de sucesso (200):**
 
 ```json
-[
-  {
-    "id": 3,
-    "nome_presente": "Liquidificador",
-    "descricao_presente": "Potência 1000W, Cor Preta",
-    "quantas_reservas_por_presente": 1,
-    "foto_presente": "https://link-da-imagem.com/foto.jpg"
-  }
-]
+{
+  "data": [
+    {
+      "ID": 3,
+      "Name": "Liquidificador",
+      "Description": "Potência 1000W, Cor Preta",
+      "ReservedQty": 0,
+      "TotalReservations": 1,
+      "UserID": 1,
+      "PhotoURL": "https://link-da-imagem.com/foto.jpg"
+    }
+  ]
+}
 ```
 
 ---
@@ -565,7 +697,36 @@ Edita as informações ou a disponibilidade de um presente existente.
 ```json
 {
   "nome_presente": "Liquidificador Atualizado",
-  "quantas_reservas_por_presente": 2
+  "descricao_presente": "Potência 1000W, Cor Preta",
+  "quantas_reservas_por_presente": 2,
+  "foto_presente": "https://link-da-imagem.com/foto.jpg"
+}
+```
+
+> ⚠️ **Atenção:** este `PUT` substitui o registro inteiro. Qualquer campo omitido (ex.: `descricao_presente`, `foto_presente`) é apagado, não mantido. Sempre envie o objeto completo. Veja [Observações de Implementação, item 2](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-observa%C3%A7%C3%B5es-de-implementa%C3%A7%C3%A3o).
+
+**Resposta de sucesso (200):**
+
+```json
+{
+  "message": "Presente atualizado!",
+  "data": {
+    "ID": 3,
+    "Name": "Liquidificador Atualizado",
+    "Description": "Potência 1000W, Cor Preta",
+    "ReservedQty": 0,
+    "TotalReservations": 2,
+    "UserID": 1,
+    "PhotoURL": "https://link-da-imagem.com/foto.jpg"
+  }
+}
+```
+
+**Resposta de erro (404) — presente não encontrado ou não pertence ao usuário:**
+
+```json
+{
+  "error": "Presente não encontrado ou sem permissão"
 }
 ```
 
@@ -590,16 +751,16 @@ Remove (soft delete) um presente da lista.
 
 ## 📋 Códigos de Status HTTP
 
-| Código | Significado                                                                    |
-| ------- | ------------------------------------------------------------------------------ |
-| `200` | Requisição bem-sucedida                                                      |
-| `201` | Recurso criado com sucesso                                                     |
-| `400` | Requisição inválida (campos obrigatórios ausentes/inválidos)              |
-| `401` | Não autenticado (token ausente, inválido ou expirado)                        |
-| `403` | Acesso negado ao recurso                                                       |
-| `404` | Recurso não encontrado                                                        |
-| `409` | Conflito (ex.: presente já esgotado/totalmente reservado, check-in duplicado) |
-| `500` | Erro interno do servidor                                                       |
+| Código | Significado                                                                     |
+| ------- | ------------------------------------------------------------------------------- |
+| `200` | Requisição bem-sucedida                                                       |
+| `201` | Recurso criado com sucesso                                                      |
+| `400` | Requisição inválida (campos obrigatórios ausentes/inválidos)               |
+| `401` | Não autenticado (token ausente, inválido, expirado ou credenciais incorretas) |
+| `403` | Acesso negado ao recurso                                                        |
+| `404` | Recurso não encontrado                                                         |
+| `409` | Conflito (ex.: presente já esgotado/totalmente reservado, check-in duplicado)  |
+| `500` | Erro interno do servidor (ex.: falha ao salvar/deletar registro no banco)       |
 
 ---
 
