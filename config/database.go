@@ -9,7 +9,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/seunome/api-eventos/models"
+	"github.com/Pedro-Wilker/api-eventos/models"
 )
 
 var DB *gorm.DB

@@ -1,8 +1,9 @@
 package main
 
 import (
+	"github.com/Pedro-Wilker/api-eventos/config"
+	"github.com/Pedro-Wilker/api-eventos/routes"
 	"github.com/gin-gonic/gin"
-	"github.com/seunome/api-eventos/config"
 )
 
 func main() {
@@ -10,9 +11,7 @@ func main() {
 
 	r := gin.Default()
 
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "API online!"})
-	})
+	routes.SetupRoutes(r)
 
 	r.Run(":8080")
 }
