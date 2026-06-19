@@ -16,6 +16,12 @@ func SetupRoutes(r *gin.Engine) {
 		api.POST("/register", controllers.Register)
 		api.POST("/login", controllers.Login)
 
+		public := api.Group("/public")
+		{
+			public.GET("/presentes/:user_id", controllers.PublicListGifts)
+			public.POST("/presentes/:id/reservar", controllers.ReserveGift)
+		}
+
 		protected := api.Group("/")
 		protected.Use(middlewares.AuthMiddleware())
 		{
@@ -31,9 +37,13 @@ func SetupRoutes(r *gin.Engine) {
 
 			protected.POST("/convidados", controllers.CreateGuest)
 			protected.GET("/convidados", controllers.ListGuests)
+			protected.PUT("/convidados/:id", controllers.UpdateGuest)
+			protected.DELETE("/convidados/:id", controllers.DeleteGuest)
 
 			protected.POST("/presentes", controllers.CreateGift)
 			protected.GET("/presentes", controllers.ListGifts)
+			protected.PUT("/presentes/:id", controllers.UpdateGift)
+			protected.DELETE("/presentes/:id", controllers.DeleteGift)
 		}
 	}
 }

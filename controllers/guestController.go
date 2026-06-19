@@ -19,11 +19,7 @@ type GuestInput struct {
 }
 
 func CreateGuest(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuário não autenticado"})
-		return
-	}
+	userID, _ := c.Get("userID")
 
 	var input GuestInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -52,13 +48,72 @@ func CreateGuest(c *gin.Context) {
 
 func ListGuests(c *gin.Context) {
 	userID, _ := c.Get("userID")
+	role, _ := c.Get("role")
 
 	var guests []models.Guest
+	query := config.DB
 
-	if err := config.DB.Where("user_id = ?", userID).Find(&guests).Error; err != nil {
+	if role != "admin" {
+		query = query.Where("user_id = ?", userID)
+	}
+
+	if err := query.Find(&guests).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar convidados"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": guests})
+}
+
+func UpdateGuest(c *gin.Context) {
+	id := c.Param("id")
+	userID, _ := c.Get("userID")
+	role, _ := c.Get("role")
+
+	var guest models.Guest
+	query := config.DB
+
+	if role != "admin" {
+		query = query.Where("user_id = ?", userID)
+	}
+
+	if err := query.First(&guest, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Convidado não encontrado ou sem permissão"})
+		return
+	}
+
+	var input GuestInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos"})
+		return
+	}
+
+	guest.Name = input.Name
+	guest.CompanionQty = input.CompanionQty
+	guest.CompanionNames = input.CompanionNames
+	guest.Email = input.Email
+	guest.Phone = input.Phone
+	guest.CompanionEmails = input.CompanionEmails
+	guest.CompanionPhones = input.CompanionPhones
+
+	config.DB.Save(&guest)
+	c.JSON(http.StatusOK, gin.H{"message": "Convidado atualizado!", "data": guest})
+}
+
+func DeleteGuest(c *gin.Context) {
+	id := c.Param("id")
+	userID, _ := c.Get("userID")
+	role, _ := c.Get("role")
+
+	query := config.DB
+	if role != "admin" {
+		query = query.Where("user_id = ?", userID)
+	}
+
+	if err := query.Where("id = ?", id).Delete(&models.Guest{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao deletar convidado"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Convidado deletado com sucesso!"})
 }

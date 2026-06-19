@@ -9,6 +9,7 @@ A aplicação utiliza uma arquitetura *multitenancy* simples, onde cada usuário
 ## 📑 Sumário
 
 * [Tecnologias Utilizadas](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-tecnologias-utilizadas)
+* [Regras de Negócio e Segurança](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-regras-de-neg%C3%B3cio-e-seguran%C3%A7a-cors-e-roles)
 * [Como Executar o Projeto Localmente](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-como-executar-o-projeto-localmente)
 * [Documentação das Rotas](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-documenta%C3%A7%C3%A3o-das-rotas-endpoints)
   * [Rotas Públicas](https://claude.ai/chat/9e04e472-6a21-46c2-8370-1f06e5d2b0d4#-rotas-p%C3%BAblicas)
@@ -28,6 +29,16 @@ A aplicação utiliza uma arquitetura *multitenancy* simples, onde cada usuário
 | Banco de Dados | PostgreSQL (com uso de `JSONB`para otimização de arrays) |
 | Segurança     | JWT (JSON Web Tokens) e Bcrypt para hash de senhas           |
 | Testes         | Node.js (Fetch API nativa)                                   |
+
+---
+
+## 🔒 Regras de Negócio e Segurança (CORS e Roles)
+
+* **CORS Dinâmico:** a API está configurada para aceitar requisições de origens específicas em produção, incluindo domínios principais e qualquer subdomínio derivado deles:
+  * `*.casamentopedroelara.com.br`
+  * `*.artonbyte.com.br`
+  * `localhost` (para desenvolvimento)
+* **Lógica de Administrador (Role: `admin`):** usuários cadastrados com o cargo `admin` podem listar, editar e deletar convidados e presentes de **qualquer** usuário do sistema. Usuários com cargo `client` estão isolados em seu próprio *tenant* (só acessam seus próprios dados).
 
 ---
 
@@ -181,6 +192,55 @@ Autentica o usuário e devolve o token JWT.
 ```json
 {
   "error": "credenciais inválidas"
+}
+```
+
+---
+
+#### Listar Presentes do Cliente
+
+Retorna a lista de presentes de um cliente específico. Ideal para renderizar a página pública do convite.
+
+* **Método:** `GET`
+* **Endpoint:** `/api/public/presentes/:user_id`
+
+**Resposta de sucesso (200):**
+
+```json
+[
+  {
+    "id": 3,
+    "nome_presente": "Liquidificador",
+    "descricao_presente": "Potência 1000W, Cor Preta",
+    "quantas_reservas_por_presente": 1,
+    "foto_presente": "https://link-da-imagem.com/foto.jpg"
+  }
+]
+```
+
+---
+
+#### Reservar Presente
+
+Incrementa a quantidade reservada de um presente, se houver disponibilidade.
+
+* **Método:** `POST`
+* **Endpoint:** `/api/public/presentes/:id/reservar`
+
+**Resposta de sucesso (200):**
+
+```json
+{
+  "message": "Presente reservado com sucesso!",
+  "data": { ... }
+}
+```
+
+**Resposta de conflito (409) — presente esgotado:**
+
+```json
+{
+  "error": "Este presente já foi totalmente reservado!"
 }
 ```
 
@@ -346,6 +406,76 @@ Retorna todos os presentes cadastrados pelo usuário autenticado.
 
 ---
 
+#### Atualizar Convidado
+
+Edita as informações de um convidado existente.
+
+* **Método:** `PUT`
+* **Endpoint:** `/api/convidados/:id`
+
+**Corpo da requisição (JSON):** *(mesmo formato da criação)*
+
+```json
+{
+  "nome": "Nome Atualizado",
+  "quantidade_acompanhante": 3
+}
+```
+
+---
+
+#### Deletar Convidado
+
+Remove (soft delete) um convidado da lista.
+
+* **Método:** `DELETE`
+* **Endpoint:** `/api/convidados/:id`
+
+**Resposta de sucesso (200):**
+
+```json
+{
+  "message": "Convidado deletado com sucesso!"
+}
+```
+
+---
+
+#### Atualizar Presente
+
+Edita as informações ou a disponibilidade de um presente existente.
+
+* **Método:** `PUT`
+* **Endpoint:** `/api/presentes/:id`
+
+**Corpo da requisição (JSON):** *(mesmo formato da criação)*
+
+```json
+{
+  "nome_presente": "Liquidificador Atualizado",
+  "quantas_reservas_por_presente": 2
+}
+```
+
+---
+
+#### Deletar Presente
+
+Remove (soft delete) um presente da lista.
+
+* **Método:** `DELETE`
+* **Endpoint:** `/api/presentes/:id`
+
+**Resposta de sucesso (200):**
+
+```json
+{
+  "message": "Presente deletado com sucesso!"
+}
+```
+
+---
+
 ## 📋 Códigos de Status HTTP
 
 | Código | Significado                                                       |
@@ -356,6 +486,7 @@ Retorna todos os presentes cadastrados pelo usuário autenticado.
 | `401` | Não autenticado (token ausente, inválido ou expirado)           |
 | `403` | Acesso negado ao recurso                                          |
 | `404` | Recurso não encontrado                                           |
+| `409` | Conflito (ex: presente já esgotado/totalmente reservado)         |
 | `500` | Erro interno do servidor                                          |
 
 ---
