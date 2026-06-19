@@ -9,13 +9,14 @@ import (
 )
 
 type GuestInput struct {
-	Name            string   `json:"nome" binding:"required"`
-	CompanionQty    int      `json:"quantidade_acompanhante"`
-	CompanionNames  []string `json:"nome_acompanhante"`
-	Email           string   `json:"email_convidado"`
-	Phone           string   `json:"numero_convidado"`
-	CompanionEmails []string `json:"emails_acompanhantes"`
-	CompanionPhones []string `json:"numeros_acompanhantes"`
+	Name                  string   `json:"nome" binding:"required"`
+	CompanionQty          int      `json:"quantidade_acompanhante"`
+	CompanionNames        []string `json:"nome_acompanhante"`
+	Email                 string   `json:"email_convidado"`
+	Phone                 string   `json:"numero_convidado"`
+	CompanionEmails       []string `json:"emails_acompanhantes"`
+	CompanionPhones       []string `json:"numeros_acompanhantes"`
+	RelacoesAcompanhantes []string `json:"relacoes_acompanhante"`
 }
 
 func CreateGuest(c *gin.Context) {
@@ -28,14 +29,15 @@ func CreateGuest(c *gin.Context) {
 	}
 
 	guest := models.Guest{
-		Name:            input.Name,
-		UserID:          userID.(uint),
-		CompanionQty:    input.CompanionQty,
-		CompanionNames:  input.CompanionNames,
-		Email:           input.Email,
-		Phone:           input.Phone,
-		CompanionEmails: input.CompanionEmails,
-		CompanionPhones: input.CompanionPhones,
+		Name:               input.Name,
+		UserID:             userID.(uint),
+		CompanionQty:       input.CompanionQty,
+		CompanionNames:     input.CompanionNames,
+		Email:              input.Email,
+		Phone:              input.Phone,
+		CompanionRelations: input.RelacoesAcompanhantes,
+		CompanionEmails:    input.CompanionEmails,
+		CompanionPhones:    input.CompanionPhones,
 	}
 
 	if err := config.DB.Create(&guest).Error; err != nil {
@@ -93,6 +95,7 @@ func UpdateGuest(c *gin.Context) {
 	guest.CompanionNames = input.CompanionNames
 	guest.Email = input.Email
 	guest.Phone = input.Phone
+	guest.CompanionRelations = input.RelacoesAcompanhantes
 	guest.CompanionEmails = input.CompanionEmails
 	guest.CompanionPhones = input.CompanionPhones
 
