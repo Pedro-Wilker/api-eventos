@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/Pedro-Wilker/api-eventos/config"
 	"github.com/Pedro-Wilker/api-eventos/models"
@@ -119,4 +120,83 @@ func DeleteGuest(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Convidado deletado com sucesso!"})
+}
+
+func findGuestByCode(c *gin.Context, codigo string) (*models.Guest, error) {
+	role, _ := c.Get("role")
+	userID, _ := c.Get("userID")
+
+	var guest models.Guest
+	query := config.DB
+
+	if role != "admin" {
+		query = query.Where("user_id = ?", userID)
+	}
+
+	err := query.Where("id = ? OR qr_code = ?", codigo, codigo).First(&guest).Error
+	if err != nil {
+		return nil, err
+	}
+	return &guest, nil
+}
+
+func FindGuestByCodeHandler(c *gin.Context) {
+	codigo := c.Param("codigo")
+
+	guest, err := findGuestByCode(c, codigo)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Convidado não encontrado no sistema."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": guest})
+}
+
+type CheckinInput struct {
+	Codigo string `json:"codigo" binding:"required"`
+}
+
+func CheckinGuest(c *gin.Context) {
+	var input CheckinInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Informe o código do QR Code ou ID do convidado."})
+		return
+	}
+
+	guest, err := findGuestByCode(c, input.Codigo)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"status": "invalido",
+			"error":  "Convidado não encontrado no sistema.",
+		})
+		return
+	}
+
+	if guest.EntradaRegistrada {
+		c.JSON(http.StatusConflict, gin.H{
+			"status":   "duplicado",
+			"data":     guest,
+			"mensagem": "Entrada já registrada em " + guest.DataEntrada.Format("02/01/2006 15:04"),
+		})
+		return
+	}
+
+	userID, _ := c.Get("userID")
+	uid := userID.(uint)
+	now := time.Now()
+
+	guest.EntradaRegistrada = true
+	guest.DataEntrada = &now
+	guest.ValidatedBy = &uid
+
+	if err := config.DB.Save(&guest).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao registrar entrada"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":   "valido",
+		"data":     guest,
+		"mensagem": "Entrada autorizada com sucesso!",
+	})
 }

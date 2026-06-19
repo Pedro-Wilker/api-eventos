@@ -1,6 +1,11 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
 
 type Guest struct {
 	gorm.Model
@@ -13,4 +18,16 @@ type Guest struct {
 	CompanionRelations []string `json:"relacoes_acompanhante" gorm:"type:jsonb"`
 	Email              string   `json:"email_convidado"`
 	Phone              string   `json:"numero_convidado"`
+
+	QRCode            string     `json:"qr_code" gorm:"uniqueIndex"`
+	EntradaRegistrada bool       `json:"entrada_registrada" gorm:"default:false"`
+	DataEntrada       *time.Time `json:"data_entrada"`
+	ValidatedBy       *uint      `json:"usuario_validador"`
+}
+
+func (g *Guest) BeforeCreate(tx *gorm.DB) (err error) {
+	if g.QRCode == "" {
+		g.QRCode = uuid.New().String()
+	}
+	return
 }

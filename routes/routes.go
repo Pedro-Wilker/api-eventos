@@ -40,6 +40,9 @@ func SetupRoutes(r *gin.Engine) {
 			protected.PUT("/convidados/:id", controllers.UpdateGuest)
 			protected.DELETE("/convidados/:id", controllers.DeleteGuest)
 
+			protected.POST("/convidados/checkin", controllers.CheckinGuest)
+			protected.GET("/convidados/buscar/:codigo", controllers.FindGuestByCodeHandler)
+
 			protected.POST("/presentes", controllers.CreateGift)
 			protected.GET("/presentes", controllers.ListGifts)
 			protected.PUT("/presentes/:id", controllers.UpdateGift)

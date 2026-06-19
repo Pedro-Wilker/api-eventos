@@ -1,3 +1,4 @@
+
 # 🚀 API Eventos
 
 Uma API RESTful de alta performance desenvolvida em **Go (Golang)** para o gerenciamento de listas de convidados e presentes.
@@ -21,14 +22,15 @@ A aplicação utiliza uma arquitetura *multitenancy* simples, onde cada usuário
 
 ## 🛠️ Tecnologias Utilizadas
 
-| Categoria      | Tecnologia                                                   |
-| -------------- | ------------------------------------------------------------ |
-| Linguagem      | [Go](https://go.dev/)                                           |
-| Framework Web  | [Gin Gonic](https://gin-gonic.com/)                             |
-| ORM            | [GORM](https://gorm.io/)                                        |
-| Banco de Dados | PostgreSQL (com uso de `JSONB`para otimização de arrays) |
-| Segurança     | JWT (JSON Web Tokens) e Bcrypt para hash de senhas           |
-| Testes         | Node.js (Fetch API nativa)                                   |
+| Categoria       | Tecnologia                                                   |
+| --------------- | ------------------------------------------------------------ |
+| Linguagem       | [Go](https://go.dev/)                                           |
+| Framework Web   | [Gin Gonic](https://gin-gonic.com/)                             |
+| ORM             | [GORM](https://gorm.io/)                                        |
+| Banco de Dados  | PostgreSQL (com uso de `JSONB`para otimização de arrays) |
+| Segurança      | JWT (JSON Web Tokens) e Bcrypt para hash de senhas           |
+| Identificadores | UUID (`google/uuid`) para QR Code de convidados            |
+| Testes          | Node.js (Fetch API nativa)                                   |
 
 ---
 
@@ -38,7 +40,8 @@ A aplicação utiliza uma arquitetura *multitenancy* simples, onde cada usuário
   * `*.casamentopedroelara.com.br`
   * `*.artonbyte.com.br`
   * `localhost` (para desenvolvimento)
-* **Lógica de Administrador (Role: `admin`):** usuários cadastrados com o cargo `admin` podem listar, editar e deletar convidados e presentes de **qualquer** usuário do sistema. Usuários com cargo `client` estão isolados em seu próprio *tenant* (só acessam seus próprios dados).
+* **Lógica de Administrador (Role: `admin`):** usuários cadastrados com o cargo `admin` podem listar, editar e deletar convidados e presentes de **qualquer** usuário do sistema. Usuários com cargo `client` estão isolados em seu próprio *tenant* (só acessam seus próprios dados). Essa mesma regra de isolamento se aplica ao **check-in** (validação de entrada) de convidados.
+* **QR Code automático:** todo convidado criado recebe automaticamente um `qr_code` (UUID v4) gerado pelo backend no momento da criação (hook `BeforeCreate` do GORM). O frontend **não precisa — e não deve —** enviar esse campo.
 
 ---
 
@@ -57,6 +60,13 @@ Clone o repositório:
 ```bash
 git clone https://github.com/seu-usuario/api-eventos.git
 cd api-eventos
+```
+
+Instale a dependência de geração de UUID (usada para o QR Code dos convidados):
+
+```bash
+go get github.com/google/uuid
+go mod tidy
 ```
 
 Crie um arquivo `.env` na raiz do projeto com as suas credenciais do banco de dados e uma chave secreta para o JWT:
@@ -259,9 +269,8 @@ Valida o token e retorna os dados de autorização do usuário logado.
 
 ```json
 {
-  "id": 1,
-  "name": "João Silva",
-  "email": "joao@email.com",
+  "message": "Você está autenticado!",
+  "user_id": 1,
   "role": "client"
 }
 ```
@@ -270,7 +279,7 @@ Valida o token e retorna os dados de autorização do usuário logado.
 
 #### Criar Convidado
 
-Adiciona um novo convidado vinculado ao usuário autenticado.
+Adiciona um novo convidado vinculado ao usuário autenticado. O `qr_code` é gerado automaticamente pelo backend —  **não envie esse campo** .
 
 * **Método:** `POST`
 * **Endpoint:** `/api/convidados`
@@ -285,35 +294,47 @@ Adiciona um novo convidado vinculado ao usuário autenticado.
   "email_convidado": "carlos@email.com",
   "numero_convidado": "11999999999",
   "emails_acompanhantes": ["ana@email.com"],
-  "numeros_acompanhantes": ["11888888888"]
+  "numeros_acompanhantes": ["11888888888"],
+  "relacoes_acompanhante": ["Esposa", "Filho"]
 }
 ```
 
-| Campo                       | Tipo     | Obrigatório | Descrição                          |
-| --------------------------- | -------- | :----------: | ------------------------------------ |
-| `nome`                    | string   |      ✅      | Nome do convidado principal          |
-| `quantidade_acompanhante` | int      |      ❌      | Número de acompanhantes             |
-| `nome_acompanhante`       | string[] |      ❌      | Lista com os nomes dos acompanhantes |
-| `email_convidado`         | string   |      ❌      | E-mail do convidado principal        |
-| `numero_convidado`        | string   |      ❌      | Telefone do convidado principal      |
-| `emails_acompanhantes`    | string[] |      ❌      | Lista de e-mails dos acompanhantes   |
-| `numeros_acompanhantes`   | string[] |      ❌      | Lista de telefones dos acompanhantes |
+| Campo                       | Tipo     | Obrigatório | Descrição                                                   |
+| --------------------------- | -------- | :----------: | ------------------------------------------------------------- |
+| `nome`                    | string   |      ✅      | Nome do convidado principal                                   |
+| `quantidade_acompanhante` | int      |      ❌      | Número de acompanhantes                                      |
+| `nome_acompanhante`       | string[] |      ❌      | Lista com os nomes dos acompanhantes                          |
+| `email_convidado`         | string   |      ❌      | E-mail do convidado principal                                 |
+| `numero_convidado`        | string   |      ❌      | Telefone do convidado principal                               |
+| `emails_acompanhantes`    | string[] |      ❌      | Lista de e-mails dos acompanhantes                            |
+| `numeros_acompanhantes`   | string[] |      ❌      | Lista de telefones dos acompanhantes                          |
+| `relacoes_acompanhante`   | string[] |      ❌      | Relação de cada acompanhante (ex.:`"Esposa"`,`"Filho"`) |
 
 > ℹ️ Apenas o campo `nome` é obrigatório; os demais são opcionais.
+>
+> ⚠️ Não envie o campo `qr_code` — ele é gerado automaticamente pelo backend.
 
 **Resposta de sucesso (201):**
 
 ```json
 {
-  "id": 5,
-  "nome": "Carlos Almeida",
-  "quantidade_acompanhante": 2,
-  "nome_acompanhante": ["Ana Almeida", "Pedro Almeida"],
-  "email_convidado": "carlos@email.com",
-  "numero_convidado": "11999999999",
-  "emails_acompanhantes": ["ana@email.com"],
-  "numeros_acompanhantes": ["11888888888"],
-  "user_id": 1
+  "message": "Convidado adicionado com sucesso!",
+  "data": {
+    "id": 5,
+    "nome": "Carlos Almeida",
+    "quantidade_acompanhante": 2,
+    "nome_acompanhante": ["Ana Almeida", "Pedro Almeida"],
+    "email_convidado": "carlos@email.com",
+    "numero_convidado": "11999999999",
+    "emails_acompanhantes": ["ana@email.com"],
+    "numeros_acompanhantes": ["11888888888"],
+    "relacoes_acompanhante": ["Esposa", "Filho"],
+    "user_id": 1,
+    "qr_code": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    "entrada_registrada": false,
+    "data_entrada": null,
+    "usuario_validador": null
+  }
 }
 ```
 
@@ -321,7 +342,7 @@ Adiciona um novo convidado vinculado ao usuário autenticado.
 
 #### Listar Convidados
 
-Retorna todos os convidados que pertencem ao usuário autenticado.
+Retorna todos os convidados que pertencem ao usuário autenticado. Se o usuário autenticado for `admin`, retorna os convidados de **todos** os usuários do sistema.
 
 * **Método:** `GET`
 * **Endpoint:** `/api/convidados`
@@ -329,16 +350,142 @@ Retorna todos os convidados que pertencem ao usuário autenticado.
 **Resposta de sucesso (200):**
 
 ```json
-[
-  {
+{
+  "data": [
+    {
+      "id": 5,
+      "nome": "Carlos Almeida",
+      "quantidade_acompanhante": 2,
+      "nome_acompanhante": ["Ana Almeida", "Pedro Almeida"],
+      "email_convidado": "carlos@email.com",
+      "numero_convidado": "11999999999",
+      "qr_code": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "entrada_registrada": false,
+      "data_entrada": null,
+      "usuario_validador": null
+    }
+  ]
+}
+```
+
+---
+
+#### Atualizar Convidado
+
+Edita as informações de um convidado existente.
+
+* **Método:** `PUT`
+* **Endpoint:** `/api/convidados/:id`
+
+**Corpo da requisição (JSON):** *(mesmo formato da criação)*
+
+```json
+{
+  "nome": "Nome Atualizado",
+  "quantidade_acompanhante": 3
+}
+```
+
+---
+
+#### Deletar Convidado
+
+Remove (soft delete) um convidado da lista.
+
+* **Método:** `DELETE`
+* **Endpoint:** `/api/convidados/:id`
+
+**Resposta de sucesso (200):**
+
+```json
+{
+  "message": "Convidado deletado com sucesso!"
+}
+```
+
+---
+
+#### Buscar Convidado por Código (QR Code ou ID)
+
+Retorna os dados de um convidado a partir do seu ID numérico ou do seu `qr_code` (UUID), sem alterar nada. Útil para pré-visualizar o convidado antes de confirmar o check-in (ex.: ao ler o QR Code na entrada do evento).
+
+* **Método:** `GET`
+* **Endpoint:** `/api/convidados/buscar/:codigo`
+
+**Resposta de sucesso (200):**
+
+```json
+{
+  "data": {
     "id": 5,
     "nome": "Carlos Almeida",
-    "quantidade_acompanhante": 2,
-    "nome_acompanhante": ["Ana Almeida", "Pedro Almeida"],
-    "email_convidado": "carlos@email.com",
-    "numero_convidado": "11999999999"
+    "qr_code": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    "entrada_registrada": false,
+    "data_entrada": null
   }
-]
+}
+```
+
+**Resposta de erro (404):**
+
+```json
+{
+  "error": "Convidado não encontrado no sistema."
+}
+```
+
+---
+
+#### Check-in (Validar Entrada do Convidado)
+
+Registra a entrada de um convidado no evento a partir do seu QR Code (ou ID). **Idempotente:** se o convidado já tiver entrada registrada, retorna conflito ao invés de duplicar o check-in.
+
+* **Método:** `POST`
+* **Endpoint:** `/api/convidados/checkin`
+
+**Corpo da requisição (JSON):**
+
+```json
+{
+  "codigo": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+}
+```
+
+> `codigo` aceita tanto o `qr_code` (UUID) quanto o `id` numérico do convidado.
+
+**Resposta de sucesso (200):**
+
+```json
+{
+  "status": "valido",
+  "mensagem": "Entrada autorizada com sucesso!",
+  "data": {
+    "id": 5,
+    "nome": "Carlos Almeida",
+    "entrada_registrada": true,
+    "data_entrada": "2026-06-19T20:15:00Z",
+    "usuario_validador": 1
+  }
+}
+```
+
+**Resposta de conflito (409) — entrada já registrada anteriormente:**
+
+```json
+{
+  "status": "duplicado",
+  "mensagem": "Entrada já registrada em 19/06/2026 20:15",
+  "data": { ... }
+}
+```
+
+**Resposta de erro (404) — convidado não encontrado:**
+
+```json
+{
+  "status": "invalido",
+  "error": "Convidado não encontrado no sistema."
+}
 ```
 
 ---
@@ -406,41 +553,6 @@ Retorna todos os presentes cadastrados pelo usuário autenticado.
 
 ---
 
-#### Atualizar Convidado
-
-Edita as informações de um convidado existente.
-
-* **Método:** `PUT`
-* **Endpoint:** `/api/convidados/:id`
-
-**Corpo da requisição (JSON):** *(mesmo formato da criação)*
-
-```json
-{
-  "nome": "Nome Atualizado",
-  "quantidade_acompanhante": 3
-}
-```
-
----
-
-#### Deletar Convidado
-
-Remove (soft delete) um convidado da lista.
-
-* **Método:** `DELETE`
-* **Endpoint:** `/api/convidados/:id`
-
-**Resposta de sucesso (200):**
-
-```json
-{
-  "message": "Convidado deletado com sucesso!"
-}
-```
-
----
-
 #### Atualizar Presente
 
 Edita as informações ou a disponibilidade de um presente existente.
@@ -478,16 +590,16 @@ Remove (soft delete) um presente da lista.
 
 ## 📋 Códigos de Status HTTP
 
-| Código | Significado                                                       |
-| ------- | ----------------------------------------------------------------- |
-| `200` | Requisição bem-sucedida                                         |
-| `201` | Recurso criado com sucesso                                        |
-| `400` | Requisição inválida (campos obrigatórios ausentes/inválidos) |
-| `401` | Não autenticado (token ausente, inválido ou expirado)           |
-| `403` | Acesso negado ao recurso                                          |
-| `404` | Recurso não encontrado                                           |
-| `409` | Conflito (ex: presente já esgotado/totalmente reservado)         |
-| `500` | Erro interno do servidor                                          |
+| Código | Significado                                                                    |
+| ------- | ------------------------------------------------------------------------------ |
+| `200` | Requisição bem-sucedida                                                      |
+| `201` | Recurso criado com sucesso                                                     |
+| `400` | Requisição inválida (campos obrigatórios ausentes/inválidos)              |
+| `401` | Não autenticado (token ausente, inválido ou expirado)                        |
+| `403` | Acesso negado ao recurso                                                       |
+| `404` | Recurso não encontrado                                                        |
+| `409` | Conflito (ex.: presente já esgotado/totalmente reservado, check-in duplicado) |
+| `500` | Erro interno do servidor                                                       |
 
 ---
 
