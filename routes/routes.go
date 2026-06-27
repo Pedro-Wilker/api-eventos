@@ -20,6 +20,7 @@ func SetupRoutes(r *gin.Engine) {
 		{
 			public.GET("/presentes/:user_id", controllers.PublicListGifts)
 			public.POST("/presentes/:id/reservar", controllers.ReserveGift)
+			public.POST("/convidados/:user_id", controllers.PublicCreateGuest)
 		}
 
 		protected := api.Group("/")

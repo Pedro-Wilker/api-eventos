@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Pedro-Wilker/api-eventos/config"
@@ -47,6 +48,40 @@ func CreateGuest(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Convidado adicionado com sucesso!", "data": guest})
+}
+
+func PublicCreateGuest(c *gin.Context) {
+	userIDStr := c.Param("user_id")
+	userID, err := strconv.ParseUint(userIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de usuário inválido"})
+		return
+	}
+
+	var input GuestInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos: " + err.Error()})
+		return
+	}
+
+	guest := models.Guest{
+		Name:               input.Name,
+		UserID:             uint(userID),
+		CompanionQty:       input.CompanionQty,
+		CompanionNames:     input.CompanionNames,
+		Email:              input.Email,
+		Phone:              input.Phone,
+		CompanionRelations: input.RelacoesAcompanhantes,
+		CompanionEmails:    input.CompanionEmails,
+		CompanionPhones:    input.CompanionPhones,
+	}
+
+	if err := config.DB.Create(&guest).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao salvar convidado"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Presença confirmada com sucesso!", "data": guest})
 }
 
 func ListGuests(c *gin.Context) {
