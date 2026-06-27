@@ -17,8 +17,11 @@ var DB *gorm.DB
 func ConnectDB() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Println("Aviso: Arquivo .env não encontrado. Usando variáveis de sistema.")
+		log.Println("Aviso: Arquivo .env não encontrado.")
 	}
+
+	log.Printf("Conectando com: Host=%s, User=%s, DB=%s",
+		os.Getenv("DB_HOST"), os.Getenv("DB_USER"), os.Getenv("DB_NAME"))
 
 	dsn := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
