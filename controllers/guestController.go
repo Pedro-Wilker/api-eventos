@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/Pedro-Wilker/api-eventos/config"
 	"github.com/Pedro-Wilker/api-eventos/models"
 	"github.com/gin-gonic/gin"
+	"gorm.io/datatypes"
 )
 
 type GuestInput struct {
@@ -19,6 +21,11 @@ type GuestInput struct {
 	CompanionEmails       []string `json:"emails_acompanhantes"`
 	CompanionPhones       []string `json:"numeros_acompanhantes"`
 	RelacoesAcompanhantes []string `json:"relacoes_acompanhante"`
+}
+
+func toJSON(v interface{}) datatypes.JSON {
+	b, _ := json.Marshal(v)
+	return datatypes.JSON(b)
 }
 
 func CreateGuest(c *gin.Context) {
@@ -34,12 +41,12 @@ func CreateGuest(c *gin.Context) {
 		Name:               input.Name,
 		UserID:             userID.(uint),
 		CompanionQty:       input.CompanionQty,
-		CompanionNames:     input.CompanionNames,
+		CompanionNames:     toJSON(input.CompanionNames),
 		Email:              input.Email,
 		Phone:              input.Phone,
-		CompanionRelations: input.RelacoesAcompanhantes,
-		CompanionEmails:    input.CompanionEmails,
-		CompanionPhones:    input.CompanionPhones,
+		CompanionRelations: toJSON(input.RelacoesAcompanhantes),
+		CompanionEmails:    toJSON(input.CompanionEmails),
+		CompanionPhones:    toJSON(input.CompanionPhones),
 	}
 
 	if err := config.DB.Create(&guest).Error; err != nil {
@@ -68,12 +75,12 @@ func PublicCreateGuest(c *gin.Context) {
 		Name:               input.Name,
 		UserID:             uint(userID),
 		CompanionQty:       input.CompanionQty,
-		CompanionNames:     input.CompanionNames,
+		CompanionNames:     toJSON(input.CompanionNames),
 		Email:              input.Email,
 		Phone:              input.Phone,
-		CompanionRelations: input.RelacoesAcompanhantes,
-		CompanionEmails:    input.CompanionEmails,
-		CompanionPhones:    input.CompanionPhones,
+		CompanionRelations: toJSON(input.RelacoesAcompanhantes),
+		CompanionEmails:    toJSON(input.CompanionEmails),
+		CompanionPhones:    toJSON(input.CompanionPhones),
 	}
 
 	if err := config.DB.Create(&guest).Error; err != nil {
@@ -128,12 +135,12 @@ func UpdateGuest(c *gin.Context) {
 
 	guest.Name = input.Name
 	guest.CompanionQty = input.CompanionQty
-	guest.CompanionNames = input.CompanionNames
+	guest.CompanionNames = toJSON(input.CompanionNames)
 	guest.Email = input.Email
 	guest.Phone = input.Phone
-	guest.CompanionRelations = input.RelacoesAcompanhantes
-	guest.CompanionEmails = input.CompanionEmails
-	guest.CompanionPhones = input.CompanionPhones
+	guest.CompanionRelations = toJSON(input.RelacoesAcompanhantes)
+	guest.CompanionEmails = toJSON(input.CompanionEmails)
+	guest.CompanionPhones = toJSON(input.CompanionPhones)
 
 	config.DB.Save(&guest)
 	c.JSON(http.StatusOK, gin.H{"message": "Convidado atualizado!", "data": guest})
