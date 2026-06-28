@@ -37,6 +37,8 @@ func SetupRoutes(r *gin.Engine) {
 			})
 
 			protected.POST("/convidados", controllers.CreateGuest)
+
+			protected.GET("/convidados/por-cliente", controllers.ListGuestsByClient)
 			protected.GET("/convidados", controllers.ListGuests)
 			protected.PUT("/convidados/:id", controllers.UpdateGuest)
 			protected.DELETE("/convidados/:id", controllers.DeleteGuest)

@@ -23,6 +23,23 @@ type GuestInput struct {
 	RelacoesAcompanhantes []string `json:"relacoes_acompanhante"`
 }
 
+type GuestResponse struct {
+	ID                     uint            `json:"ID"`
+	Nome                   string          `json:"nome"`
+	QrCode                 string          `json:"qr_code"`
+	EntradaRegistrada      bool            `json:"entrada_registrada"`
+	DataEntrada            *time.Time      `json:"data_entrada"`
+	QuantidadeAcompanhante int             `json:"quantidade_acompanhante"`
+	NomeAcompanhante       json.RawMessage `json:"nome_acompanhante"`
+}
+
+type ClientGroup struct {
+	UserID     uint            `json:"user_id"`
+	UserName   string          `json:"user_name"`
+	Total      int64           `json:"total"`
+	Convidados []GuestResponse `json:"convidados"`
+}
+
 func toJSON(v interface{}) datatypes.JSON {
 	b, _ := json.Marshal(v)
 	return datatypes.JSON(b)
@@ -30,13 +47,11 @@ func toJSON(v interface{}) datatypes.JSON {
 
 func CreateGuest(c *gin.Context) {
 	userID, _ := c.Get("userID")
-
 	var input GuestInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos: " + err.Error()})
 		return
 	}
-
 	guest := models.Guest{
 		Name:               input.Name,
 		UserID:             userID.(uint),
@@ -48,13 +63,76 @@ func CreateGuest(c *gin.Context) {
 		CompanionEmails:    toJSON(input.CompanionEmails),
 		CompanionPhones:    toJSON(input.CompanionPhones),
 	}
-
 	if err := config.DB.Create(&guest).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao salvar convidado"})
 		return
 	}
-
 	c.JSON(http.StatusCreated, gin.H{"message": "Convidado adicionado com sucesso!", "data": guest})
+}
+
+func ListGuestsByClient(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	role, _ := c.Get("role")
+
+	if role == "admin" {
+		var results []struct {
+			UserID     uint
+			UserName   string
+			GuestID    uint
+			GuestName  string
+			QrCode     string
+			Entrada    bool
+			DataEnt    *time.Time
+			QtdAcomp   int
+			NomesAcomp json.RawMessage
+		}
+
+		err := config.DB.Table("guests").
+			Select("users.id as user_id, users.name as user_name, guests.id as guest_id, guests.name as guest_name, guests.qr_code, guests.entrada_registrada, guests.data_entrada, guests.companion_qty, guests.companion_names").
+			Joins("join users on users.id = guests.user_id").
+			Where("guests.deleted_at is null").
+			Scan(&results).Error
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar convidados"})
+			return
+		}
+
+		groups := make(map[uint]*ClientGroup)
+		for _, r := range results {
+			if _, ok := groups[r.UserID]; !ok {
+				groups[r.UserID] = &ClientGroup{UserID: r.UserID, UserName: r.UserName, Convidados: []GuestResponse{}}
+			}
+			groups[r.UserID].Convidados = append(groups[r.UserID].Convidados, GuestResponse{
+				ID: r.GuestID, Nome: r.GuestName, QrCode: r.QrCode, EntradaRegistrada: r.Entrada,
+				DataEntrada: r.DataEnt, QuantidadeAcompanhante: r.QtdAcomp, NomeAcompanhante: r.NomesAcomp,
+			})
+			groups[r.UserID].Total++
+		}
+
+		var final []ClientGroup
+		totalConvidados := 0
+		for _, g := range groups {
+			final = append(final, *g)
+			totalConvidados += int(g.Total)
+		}
+		c.JSON(http.StatusOK, gin.H{"total_clientes": len(final), "total_convidados": totalConvidados, "clientes": final})
+		return
+	}
+
+	var user models.User
+	config.DB.First(&user, userID)
+	var guests []models.Guest
+	config.DB.Where("user_id = ?", userID).Find(&guests)
+
+	var guestRes []GuestResponse
+	for _, g := range guests {
+		guestRes = append(guestRes, GuestResponse{
+			ID: g.ID, Nome: g.Name, QrCode: g.QRCode, EntradaRegistrada: g.EntradaRegistrada,
+			DataEntrada: g.DataEntrada, QuantidadeAcompanhante: g.CompanionQty, NomeAcompanhante: json.RawMessage(g.CompanionNames),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"user_id": user.ID, "user_name": user.Name, "total": len(guestRes), "convidados": guestRes})
 }
 
 func PublicCreateGuest(c *gin.Context) {
