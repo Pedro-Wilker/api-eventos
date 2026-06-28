@@ -31,6 +31,7 @@ type GuestResponse struct {
 	DataEntrada            *time.Time      `json:"data_entrada"`
 	QuantidadeAcompanhante int             `json:"quantidade_acompanhante"`
 	NomeAcompanhante       json.RawMessage `json:"nome_acompanhante"`
+	RelacoesAcompanhante   json.RawMessage `json:"relacoes_acompanhante"` 
 }
 
 type ClientGroup struct {
@@ -84,11 +85,23 @@ func ListGuestsByClient(c *gin.Context) {
 			Entrada    bool
 			DataEnt    *time.Time
 			QtdAcomp   int
-			NomesAcomp json.RawMessage
+			NomesAcomp     json.RawMessage // companion_names
+			RelacoesAcomp  json.RawMessage // companion_relations ← ADICIONADO
 		}
 
 		err := config.DB.Table("guests").
-			Select("users.id as user_id, users.name as user_name, guests.id as guest_id, guests.name as guest_name, guests.qr_code, guests.entrada_registrada, guests.data_entrada, guests.companion_qty, guests.companion_names").
+			Select(`
+				users.id as user_id,
+				users.name as user_name,
+				guests.id as guest_id,
+				guests.name as guest_name,
+				guests.qr_code,
+				guests.entrada_registrada,
+				guests.data_entrada,
+				guests.companion_qty,
+				guests.companion_names,
+				guests.companion_relations
+			`). // ← companion_relations ADICIONADO
 			Joins("join users on users.id = guests.user_id").
 			Where("guests.deleted_at is null").
 			Scan(&results).Error
@@ -104,8 +117,14 @@ func ListGuestsByClient(c *gin.Context) {
 				groups[r.UserID] = &ClientGroup{UserID: r.UserID, UserName: r.UserName, Convidados: []GuestResponse{}}
 			}
 			groups[r.UserID].Convidados = append(groups[r.UserID].Convidados, GuestResponse{
-				ID: r.GuestID, Nome: r.GuestName, QrCode: r.QrCode, EntradaRegistrada: r.Entrada,
-				DataEntrada: r.DataEnt, QuantidadeAcompanhante: r.QtdAcomp, NomeAcompanhante: r.NomesAcomp,
+				ID:                     r.GuestID,
+				Nome:                   r.GuestName,
+				QrCode:                 r.QrCode,
+				EntradaRegistrada:      r.Entrada,
+				DataEntrada:            r.DataEnt,
+				QuantidadeAcompanhante: r.QtdAcomp,
+				NomeAcompanhante:       r.NomesAcomp,
+				RelacoesAcompanhante:   r.RelacoesAcomp, // ← ADICIONADO
 			})
 			groups[r.UserID].Total++
 		}
@@ -128,8 +147,14 @@ func ListGuestsByClient(c *gin.Context) {
 	var guestRes []GuestResponse
 	for _, g := range guests {
 		guestRes = append(guestRes, GuestResponse{
-			ID: g.ID, Nome: g.Name, QrCode: g.QRCode, EntradaRegistrada: g.EntradaRegistrada,
-			DataEntrada: g.DataEntrada, QuantidadeAcompanhante: g.CompanionQty, NomeAcompanhante: json.RawMessage(g.CompanionNames),
+			ID:                     g.ID,
+			Nome:                   g.Name,
+			QrCode:                 g.QRCode,
+			EntradaRegistrada:      g.EntradaRegistrada,
+			DataEntrada:            g.DataEntrada,
+			QuantidadeAcompanhante: g.CompanionQty,
+			NomeAcompanhante:       json.RawMessage(g.CompanionNames),
+			RelacoesAcompanhante:   json.RawMessage(g.CompanionRelations), // ← ADICIONADO
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"user_id": user.ID, "user_name": user.Name, "total": len(guestRes), "convidados": guestRes})
