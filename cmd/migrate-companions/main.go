@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/Pedro-Wilker/api-eventos/config"
 	"github.com/Pedro-Wilker/api-eventos/models"
@@ -51,8 +50,10 @@ func main() {
 
 		codes := make([]string, len(names))
 		checked := make([]bool, len(names))
+		// Hash canonico sobre nome COMO SALVO em companion_names (whitespace
+		// preservado). PDFs antigos foram gerados sem TrimSpace antes do FNV-1a
+		// — TrimSpace aqui quebraria match com PDFs ja emitidos.
 		for i, n := range names {
-			n = strings.TrimSpace(n)
 			if n == "" {
 				continue
 			}
