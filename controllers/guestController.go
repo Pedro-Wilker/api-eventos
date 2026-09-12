@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -324,20 +323,31 @@ func findGuestByCode(c *gin.Context, codigo string) (*models.Guest, int, error) 
 	}
 
 	// 2) acompanhante (codigo sintetico gerado no frontend)
-	// Usa operador JSONB @> (contains) em vez de ? para evitar conflito
-	// com o placeholder '?' do GORM. @> recebe array JSONB literal como arg.
-	payload := fmt.Sprintf(`["%s"]`, codigo)
-	if err := config.DB.Where("companion_qr_codes @> ?", payload).First(&guest).Error; err == nil {
+	// LATERAL JOIN com jsonb_array_elements_text expande cada string do
+	// array como linha, comparando contra o codigo via igualdade direta.
+	// Evita qualquer ambiguidade com operadores JSONB (?, @>) que ja
+	// demonstraram falhar dentro do builder do GORM.
+	var acompGuest models.Guest
+	err := config.DB.Raw(`
+		SELECT g.* FROM guests g
+		JOIN LATERAL jsonb_array_elements_text(companion_qr_codes) AS elem ON TRUE
+		WHERE elem = ?
+		LIMIT 1
+	`, codigo).Scan(&acompGuest).Error
+	if err == nil && acompGuest.ID != 0 {
 		var codes []string
-		if guest.CompanionQRCodes != nil {
-			if err := json.Unmarshal(guest.CompanionQRCodes, &codes); err == nil {
+		if acompGuest.CompanionQRCodes != nil {
+			if err := json.Unmarshal(acompGuest.CompanionQRCodes, &codes); err == nil {
 				for i, code := range codes {
 					if code == codigo {
-						return &guest, i, nil
+						return &acompGuest, i, nil
 					}
 				}
 			}
 		}
+		// Encontrou guest mas nao achou indice especifico; retorna sem indice
+		// (-1) — CheckinGuest trata isso como titular por seguranca.
+		return &acompGuest, -1, nil
 	}
 
 	return nil, -1, gorm.ErrRecordNotFound
