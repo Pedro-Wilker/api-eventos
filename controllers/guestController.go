@@ -10,12 +10,21 @@ import (
 	"github.com/Pedro-Wilker/api-eventos/models"
 	"github.com/gin-gonic/gin"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
+
+// buildCheckedInSlice retorna slice de n bools inicializado em false.
+// Usado ao criar guest com acompanhantes para inicializar flags de consumo.
+func buildCheckedInSlice(n int) []bool {
+	out := make([]bool, n)
+	return out
+}
 
 type GuestInput struct {
 	Name                  string   `json:"nome" binding:"required"`
 	CompanionQty          int      `json:"quantidade_acompanhante"`
 	CompanionNames        []string `json:"nome_acompanhante"`
+	CompanionQRCodes      []string `json:"companion_qr_codes"`
 	Email                 string   `json:"email_convidado"`
 	Phone                 string   `json:"numero_convidado"`
 	CompanionEmails       []string `json:"emails_acompanhantes"`
@@ -32,6 +41,8 @@ type GuestResponse struct {
 	QuantidadeAcompanhante int             `json:"quantidade_acompanhante"`
 	NomeAcompanhante       json.RawMessage `json:"nome_acompanhante"`
 	RelacoesAcompanhante   json.RawMessage `json:"relacoes_acompanhante"`
+	CompanionQRCodes       json.RawMessage `json:"companion_qr_codes"`
+	CompanionCheckedIn     json.RawMessage `json:"companion_checked_in"`
 }
 
 type ClientGroup struct {
@@ -63,6 +74,8 @@ func CreateGuest(c *gin.Context) {
 		CompanionRelations: toJSON(input.RelacoesAcompanhantes),
 		CompanionEmails:    toJSON(input.CompanionEmails),
 		CompanionPhones:    toJSON(input.CompanionPhones),
+		CompanionQRCodes:   toJSON(input.CompanionQRCodes),
+		CompanionCheckedIn: toJSON(buildCheckedInSlice(len(input.CompanionQRCodes))),
 	}
 	if err := config.DB.Create(&guest).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao salvar convidado"})
@@ -199,6 +212,8 @@ func PublicCreateGuest(c *gin.Context) {
 		CompanionRelations: toJSON(input.RelacoesAcompanhantes),
 		CompanionEmails:    toJSON(input.CompanionEmails),
 		CompanionPhones:    toJSON(input.CompanionPhones),
+		CompanionQRCodes:   toJSON(input.CompanionQRCodes),
+		CompanionCheckedIn: toJSON(buildCheckedInSlice(len(input.CompanionQRCodes))),
 	}
 
 	if err := config.DB.Create(&guest).Error; err != nil {
@@ -259,6 +274,18 @@ func UpdateGuest(c *gin.Context) {
 	guest.CompanionRelations = toJSON(input.RelacoesAcompanhantes)
 	guest.CompanionEmails = toJSON(input.CompanionEmails)
 	guest.CompanionPhones = toJSON(input.CompanionPhones)
+	if len(input.CompanionQRCodes) > 0 {
+		guest.CompanionQRCodes = toJSON(input.CompanionQRCodes)
+		// preserva flags ja consumidas; cria novas entradas como false
+		var checked []bool
+		_ = json.Unmarshal(guest.CompanionCheckedIn, &checked)
+		if len(checked) < len(input.CompanionQRCodes) {
+			for i := len(checked); i < len(input.CompanionQRCodes); i++ {
+				checked = append(checked, false)
+			}
+			guest.CompanionCheckedIn = toJSON(checked)
+		}
+	}
 
 	config.DB.Save(&guest)
 	c.JSON(http.StatusOK, gin.H{"message": "Convidado atualizado!", "data": guest})
@@ -282,28 +309,41 @@ func DeleteGuest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Convidado deletado com sucesso!"})
 }
 
-func findGuestByCode(c *gin.Context, codigo string) (*models.Guest, error) {
-	role, _ := c.Get("role")
-	userID, _ := c.Get("userID")
-
+// findGuestByCode busca convidado por QR code em todo o sistema
+// (validacao na porta e operacao ampla do evento).
+// Retorna o guest e o indice do acompanhante que fez match, ou -1 se foi
+// o titular. Aplica filtro por user_id apenas para nao-admin que estejam
+// consultando/manipulando proprios convidados (ListGuests/Update/Delete).
+func findGuestByCode(c *gin.Context, codigo string) (*models.Guest, int, error) {
 	var guest models.Guest
-	query := config.DB
 
-	if role != "admin" {
-		query = query.Where("user_id = ?", userID)
+	// 1) titular (qr_code ou id)
+	if err := config.DB.Where("qr_code = ? OR id::text = ?", codigo, codigo).First(&guest).Error; err == nil {
+		return &guest, -1, nil
 	}
 
-	err := query.Where("id = ? OR qr_code = ?", codigo, codigo).First(&guest).Error
-	if err != nil {
-		return nil, err
+	// 2) acompanhante (codigo sintetico gerado no frontend)
+	// PostgreSQL JSONB `?` operator: true se string existe como elemento top-level do array.
+	if err := config.DB.Where("companion_qr_codes::jsonb ? ?", codigo).First(&guest).Error; err == nil {
+		var codes []string
+		if guest.CompanionQRCodes != nil {
+			if err := json.Unmarshal(guest.CompanionQRCodes, &codes); err == nil {
+				for i, code := range codes {
+					if code == codigo {
+						return &guest, i, nil
+					}
+				}
+			}
+		}
 	}
-	return &guest, nil
+
+	return nil, -1, gorm.ErrRecordNotFound
 }
 
 func FindGuestByCodeHandler(c *gin.Context) {
 	codigo := c.Param("codigo")
 
-	guest, err := findGuestByCode(c, codigo)
+	guest, _, err := findGuestByCode(c, codigo)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Convidado não encontrado no sistema."})
 		return
@@ -323,7 +363,7 @@ func CheckinGuest(c *gin.Context) {
 		return
 	}
 
-	guest, err := findGuestByCode(c, input.Codigo)
+	guest, compIdx, err := findGuestByCode(c, input.Codigo)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"status": "invalido",
@@ -332,22 +372,53 @@ func CheckinGuest(c *gin.Context) {
 		return
 	}
 
-	if guest.EntradaRegistrada {
-		c.JSON(http.StatusConflict, gin.H{
-			"status":   "duplicado",
-			"data":     guest,
-			"mensagem": "Entrada já registrada em " + guest.DataEntrada.Format("02/01/2006 15:04"),
-		})
-		return
-	}
-
 	userID, _ := c.Get("userID")
 	uid := userID.(uint)
 	now := time.Now()
 
-	guest.EntradaRegistrada = true
-	guest.DataEntrada = &now
-	guest.ValidatedBy = &uid
+	if compIdx == -1 {
+		// Titular
+		if guest.EntradaRegistrada {
+			ts := ""
+			if guest.DataEntrada != nil {
+				ts = guest.DataEntrada.Format("02/01/2006 15:04")
+			}
+			c.JSON(http.StatusConflict, gin.H{
+				"status":   "duplicado",
+				"data":     guest,
+				"mensagem": "Entrada do titular já registrada em " + ts,
+			})
+			return
+		}
+		guest.EntradaRegistrada = true
+		guest.DataEntrada = &now
+		guest.ValidatedBy = &uid
+	} else {
+		// Acompanhante individual
+		var checked []bool
+		_ = json.Unmarshal(guest.CompanionCheckedIn, &checked)
+		for len(checked) <= compIdx {
+			checked = append(checked, false)
+		}
+		if checked[compIdx] {
+			// recupera timestamp aproximado do titular (mesma coluna re-aproveitada)
+			ts := ""
+			if guest.DataEntrada != nil {
+				ts = guest.DataEntrada.Format("02/01/2006 15:04")
+			}
+			c.JSON(http.StatusConflict, gin.H{
+				"status":   "duplicado",
+				"data":     guest,
+				"mensagem": "Entrada do acompanhante já registrada (titular) em " + ts,
+			})
+			return
+		}
+		checked[compIdx] = true
+		guest.CompanionCheckedIn = toJSON(checked)
+		// nao tocamos em EntradaRegistrada do titular; data_entrada guarda o ultimo checkin
+		guest.DataEntrada = &now
+		guest.ValidatedBy = &uid
+	}
 
 	if err := config.DB.Save(&guest).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao registrar entrada"})
@@ -360,3 +431,5 @@ func CheckinGuest(c *gin.Context) {
 		"mensagem": "Entrada autorizada com sucesso!",
 	})
 }
+
+// buildCheckedInSlice definida no topo do arquivo.

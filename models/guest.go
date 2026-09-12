@@ -20,6 +20,12 @@ type Guest struct {
 	Email              string         `json:"email_convidado"`
 	Phone              string         `json:"numero_convidado"`
 
+	// CompanionQRCodes armazena os qr_codes sinteticos gerados pelo frontend
+	// para cada acompanhante (uso unico, mesmo que o qr do titular).
+	// CompanionCheckedIn rastreia, na mesma ordem, quais ja consumiram entrada.
+	CompanionQRCodes   datatypes.JSON `json:"companion_qr_codes"`
+	CompanionCheckedIn datatypes.JSON `json:"companion_checked_in"`
+
 	QRCode            string     `json:"qr_code" gorm:"uniqueIndex"`
 	EntradaRegistrada bool       `json:"entrada_registrada" gorm:"default:false"`
 	DataEntrada       *time.Time `json:"data_entrada"`
