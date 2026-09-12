@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -323,8 +324,10 @@ func findGuestByCode(c *gin.Context, codigo string) (*models.Guest, int, error) 
 	}
 
 	// 2) acompanhante (codigo sintetico gerado no frontend)
-	// PostgreSQL JSONB `?` operator: true se string existe como elemento top-level do array.
-	if err := config.DB.Where("companion_qr_codes::jsonb ? ?", codigo).First(&guest).Error; err == nil {
+	// Usa operador JSONB @> (contains) em vez de ? para evitar conflito
+	// com o placeholder '?' do GORM. @> recebe array JSONB literal como arg.
+	payload := fmt.Sprintf(`["%s"]`, codigo)
+	if err := config.DB.Where("companion_qr_codes @> ?", payload).First(&guest).Error; err == nil {
 		var codes []string
 		if guest.CompanionQRCodes != nil {
 			if err := json.Unmarshal(guest.CompanionQRCodes, &codes); err == nil {
