@@ -391,6 +391,23 @@ func CheckinGuest(c *gin.Context) {
 	uid := userID.(uint)
 	now := time.Now()
 
+	// companionMeta identifica qual slot de acompanhante casou (nil = titular).
+	// Incluido nas respostas 200 e 409 para o frontend exibir o nome do
+	// acompanhante validado, não apenas o nome do titular.
+	var companionMeta gin.H
+	if compIdx >= 0 {
+		var names []string
+		_ = json.Unmarshal(guest.CompanionNames, &names)
+		name := ""
+		if compIdx < len(names) {
+			name = names[compIdx]
+		}
+		companionMeta = gin.H{
+			"name":  name,
+			"index": compIdx,
+		}
+	}
+
 	if compIdx == -1 {
 		// Titular
 		if guest.EntradaRegistrada {
@@ -422,9 +439,10 @@ func CheckinGuest(c *gin.Context) {
 				ts = guest.DataEntrada.Format("02/01/2006 15:04")
 			}
 			c.JSON(http.StatusConflict, gin.H{
-				"status":   "duplicado",
-				"data":     guest,
-				"mensagem": "Entrada do acompanhante já registrada (titular) em " + ts,
+				"status":    "duplicado",
+				"data":      guest,
+				"companion": companionMeta,
+				"mensagem":  "Entrada do acompanhante já registrada (titular) em " + ts,
 			})
 			return
 		}
@@ -440,11 +458,15 @@ func CheckinGuest(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"status":   "valido",
 		"data":     guest,
 		"mensagem": "Entrada autorizada com sucesso!",
-	})
+	}
+	if companionMeta != nil {
+		resp["companion"] = companionMeta
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // buildCheckedInSlice definida no topo do arquivo.
