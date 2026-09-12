@@ -325,12 +325,14 @@ func findGuestByCode(c *gin.Context, codigo string) (*models.Guest, int, error) 
 	// 2) acompanhante (codigo sintetico gerado no frontend)
 	// LATERAL JOIN com jsonb_array_elements_text expande cada string do
 	// array como linha, comparando contra o codigo via igualdade direta.
-	// Evita qualquer ambiguidade com operadores JSONB (?, @>) que ja
-	// demonstraram falhar dentro do builder do GORM.
+	// Guarda com jsonb_typeof = 'array' no ON para que a funcao nao seja
+	// invocada em colunas NULL/escalar (geraria SQLSTATE 22023 e quebraria
+	// o checkin de qualquer outro guest).
 	var acompGuest models.Guest
 	err := config.DB.Raw(`
 		SELECT g.* FROM guests g
-		JOIN LATERAL jsonb_array_elements_text(companion_qr_codes) AS elem ON TRUE
+		JOIN LATERAL jsonb_array_elements_text(companion_qr_codes) AS elem
+		  ON jsonb_typeof(companion_qr_codes) = 'array'
 		WHERE elem = ?
 		LIMIT 1
 	`, codigo).Scan(&acompGuest).Error
